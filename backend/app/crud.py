@@ -200,3 +200,40 @@ def get_dashboard_stats(db: Session):
         "low_stock_count": low_stock_count,
         "low_stock_products": low_stock_products
     }
+
+
+# ==========================================
+# USER CRUD & REGISTRATION CONSTRAINTS
+# ==========================================
+def get_user(db: Session, user_id: int):
+    return db.query(models.User).filter(models.User.id == user_id).first()
+
+def get_user_by_username(db: Session, username: str):
+    return db.query(models.User).filter(models.User.username == username).first()
+
+def get_user_by_email(db: Session, email: str):
+    return db.query(models.User).filter(models.User.email == email).first()
+
+def create_user(db: Session, user: schemas.UserCreate):
+    # Enforce database uniqueness constraints before persisting
+    if get_user_by_username(db, user.username):
+        raise ValueError(f"Username '{user.username}' is already taken.")
+        
+    if get_user_by_email(db, user.email):
+        raise ValueError(f"Email address '{user.email}' is already registered.")
+
+    # Import hashing on demand to preserve modular boundaries
+    from app.auth import hash_password
+    
+    hashed_pwd = hash_password(user.password)
+    
+    new_user = models.User(
+        username=user.username,
+        email=user.email,
+        password_hash=hashed_pwd
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    return new_user
+

@@ -94,3 +94,28 @@ class DashboardStats(BaseModel):
     total_orders: int
     low_stock_count: int
     low_stock_products: List[ProductResponse]
+
+
+# ==========================================
+# AUTHENTICATION SCHEMAS
+# ==========================================
+class UserCreate(BaseModel):
+    username: str = Field(..., min_length=3, max_length=50, description="Unique username")
+    email: EmailStr = Field(..., description="Valid unique email address")
+    password: str = Field(..., min_length=6, description="Password must be at least 6 characters")
+
+class UserResponse(BaseModel):
+    id: int
+    username: str
+    email: str
+
+    class Config:
+        from_attributes = True
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+class TokenData(BaseModel):
+    username: Optional[str] = None
+

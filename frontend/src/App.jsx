@@ -5,11 +5,16 @@ import ProductManager from './components/ProductManager'
 import CustomerManager from './components/CustomerManager'
 import OrderManager from './components/OrderManager'
 import Toast from './components/Toast'
+import AuthPages from './components/AuthPages'
 
 export default function App() {
   const [activeSection, setActiveSection] = useState('dashboard')
   const [theme, setTheme] = useState(localStorage.getItem('theme') || 'dark')
   
+  // Auth Session State
+  const [token, setToken] = useState(localStorage.getItem('token') || null)
+  const [user, setUser] = useState(null)
+
   // Entities State
   const [products, setProducts] = useState([])
   const [customers, setCustomers] = useState([])
@@ -26,7 +31,6 @@ export default function App() {
   const [loading, setLoading] = useState(true)
 
   // Configure API Base Endpoint
-  // Vite proxy handles '/api' local redirection. In production, we read VITE_API_URL or use relative paths.
   const API_BASE = '/api'
 
   // Toast Helper
@@ -57,15 +61,44 @@ export default function App() {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))
   }
 
+  // ==========================================
+  // AUTHORIZATION NETWORK INTERCEPTOR
+  // ==========================================
+  const authFetch = async (url, options = {}) => {
+    const headers = options.headers || {}
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`
+    }
+    
+    const mergedOptions = {
+      ...options,
+      headers: {
+        ...headers,
+        'Content-Type': headers['Content-Type'] || 'application/json'
+      }
+    }
+
+    if (!options.body) {
+      delete mergedOptions.headers['Content-Type']
+    }
+
+    return fetch(url, mergedOptions)
+  }
+
   // Centralized Data Fetcher
   const fetchAllData = async () => {
     try {
       const [prodRes, custRes, orderRes, statsRes] = await Promise.all([
-        fetch(`${API_BASE}/products`),
-        fetch(`${API_BASE}/customers`),
-        fetch(`${API_BASE}/orders`),
-        fetch(`${API_BASE}/dashboard/stats`)
+        authFetch(`${API_BASE}/products`),
+        authFetch(`${API_BASE}/customers`),
+        authFetch(`${API_BASE}/orders`),
+        authFetch(`${API_BASE}/dashboard/stats`)
       ])
+
+      if (prodRes.status === 401 || custRes.status === 401 || orderRes.status === 401 || statsRes.status === 401) {
+        handleLogout()
+        return
+      }
 
       if (!prodRes.ok || !custRes.ok || !orderRes.ok || !statsRes.ok) {
         throw new Error('One or more network requests failed to load.')
@@ -79,7 +112,6 @@ export default function App() {
       setProducts(prods)
       setCustomers(custs)
       
-      // Inject resolved customer references into orders for clean display
       const mappedOrders = ords.map((ord) => ({
         ...ord,
         customer: custs.find((c) => c.id === ord.customer_id)
@@ -94,17 +126,94 @@ export default function App() {
     }
   }
 
+  // Fetch logged in profile details
+  const fetchCurrentUser = async (authToken) => {
+    try {
+      const res = await fetch(`${API_BASE}/auth/me`, {
+        headers: {
+          'Authorization': `Bearer ${authToken}`
+        }
+      })
+      if (res.ok) {
+        const profile = await res.json()
+        setUser(profile)
+        return profile
+      } else {
+        // Token expired or invalid, wipe session
+        handleLogout()
+        return null
+      }
+    } catch (err) {
+      console.error(err)
+      handleLogout()
+      return null
+    }
+  }
+
+  // Verification & loading on initial boot
   useEffect(() => {
-    fetchAllData()
-  }, [])
+    if (token) {
+      fetchCurrentUser(token).then((profile) => {
+        if (profile) {
+          fetchAllData()
+        } else {
+          setLoading(false)
+        }
+      })
+    } else {
+      setLoading(false)
+    }
+  }, [token])
+
+  // ==========================================
+  // SESSION CALLBACK HANDLERS
+  // ==========================================
+  const handleLogin = async (username, password) => {
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      throw new Error(data.detail || 'Login failed')
+    }
+    
+    localStorage.setItem('token', data.access_token)
+    setToken(data.access_token)
+    // Fetch profile and synchronise list data
+    await fetchCurrentUser(data.access_token)
+    addToast('Welcome back! Successfully logged in.', 'success')
+  }
+
+  const handleRegister = async (username, email, password) => {
+    const res = await fetch(`${API_BASE}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, email, password })
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      throw new Error(data.detail || 'Registration failed')
+    }
+  }
+
+  const handleLogout = () => {
+    localStorage.removeItem('token')
+    setToken(null)
+    setUser(null)
+    setProducts([])
+    setCustomers([])
+    setOrders([])
+    addToast('Signed out successfully.', 'success')
+  }
 
   // ==========================================
   // PRODUCT OPERATIONS
   // ==========================================
   const handleAddProduct = async (payload) => {
-    const res = await fetch(`${API_BASE}/products`, {
+    const res = await authFetch(`${API_BASE}/products`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     })
     const data = await res.json()
@@ -116,9 +225,8 @@ export default function App() {
   }
 
   const handleUpdateProduct = async (id, payload) => {
-    const res = await fetch(`${API_BASE}/products/${id}`, {
+    const res = await authFetch(`${API_BASE}/products/${id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     })
     const data = await res.json()
@@ -131,7 +239,7 @@ export default function App() {
 
   const handleDeleteProduct = async (id) => {
     try {
-      const res = await fetch(`${API_BASE}/products/${id}`, { method: 'DELETE' })
+      const res = await authFetch(`${API_BASE}/products/${id}`, { method: 'DELETE' })
       const data = await res.json()
       if (!res.ok) {
         throw new Error(data.detail || 'Failed to delete product.')
@@ -147,9 +255,8 @@ export default function App() {
   // CUSTOMER OPERATIONS
   // ==========================================
   const handleAddCustomer = async (payload) => {
-    const res = await fetch(`${API_BASE}/customers`, {
+    const res = await authFetch(`${API_BASE}/customers`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     })
     const data = await res.json()
@@ -162,7 +269,7 @@ export default function App() {
 
   const handleDeleteCustomer = async (id) => {
     try {
-      const res = await fetch(`${API_BASE}/customers/${id}`, { method: 'DELETE' })
+      const res = await authFetch(`${API_BASE}/customers/${id}`, { method: 'DELETE' })
       const data = await res.json()
       if (!res.ok) {
         throw new Error(data.detail || 'Failed to delete customer.')
@@ -178,9 +285,8 @@ export default function App() {
   // ORDER OPERATIONS
   // ==========================================
   const handleCreateOrder = async (payload) => {
-    const res = await fetch(`${API_BASE}/orders`, {
+    const res = await authFetch(`${API_BASE}/orders`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     })
     const data = await res.json()
@@ -193,7 +299,7 @@ export default function App() {
 
   const handleDeleteOrder = async (id) => {
     try {
-      const res = await fetch(`${API_BASE}/orders/${id}`, { method: 'DELETE' })
+      const res = await authFetch(`${API_BASE}/orders/${id}`, { method: 'DELETE' })
       const data = await res.json()
       if (!res.ok) {
         throw new Error(data.detail || 'Failed to delete order.')
@@ -258,16 +364,43 @@ export default function App() {
     }
   }
 
+  // Intercept view if unauthenticated
+  if (!token || !user) {
+    if (loading) {
+      return (
+        <div style={{ display: 'flex', minHeight: '100vh', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--bg-color)', color: 'var(--text-primary)', fontFamily: 'var(--font-display)' }}>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--primary)', marginBottom: '0.5rem', animation: 'pulse 1.5s infinite' }}>
+              Apex Inventory
+            </div>
+            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+              Verifying active admin session...
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    return (
+      <>
+        <AuthPages onLogin={handleLogin} onRegister={handleRegister} addToast={addToast} />
+        <Toast toasts={toasts} removeToast={removeToast} />
+      </>
+    )
+  }
+
   const headerMeta = getSectionTitle()
 
   return (
-    <div className="app-container">
+    <div className="app-container" style={{ animation: 'fadeIn 0.4s ease' }}>
       {/* Side Dock Navbar */}
       <Navbar
         activeSection={activeSection}
         setActiveSection={setActiveSection}
         theme={theme}
         toggleTheme={toggleTheme}
+        user={user}
+        onLogout={handleLogout}
       />
 
       {/* Main Layout Area */}
@@ -293,3 +426,4 @@ export default function App() {
     </div>
   )
 }
+

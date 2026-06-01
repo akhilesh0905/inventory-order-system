@@ -798,6 +798,41 @@ button, input, select, textarea {
   gap: 0.25rem;
 }
 
+/* ==========================================================================
+   AUTHENTICATION STYLES
+   ========================================================================== */
+.auth-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: var(--bg-color);
+  background-image: radial-gradient(circle at top right, var(--primary-glow) 0%, transparent 40%),
+                    radial-gradient(circle at bottom left, var(--primary-glow) 0%, transparent 40%);
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 420px;
+  background-color: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 3rem 2.5rem;
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: blur(10px);
+}
+
+.auth-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+}
+
+
 .meta-label {
   font-size: 0.75rem;
   color: var(--text-muted);

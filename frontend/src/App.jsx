@@ -5,8 +5,10 @@ import ProductManager from './components/ProductManager'
 import CustomerManager from './components/CustomerManager'
 import OrderManager from './components/OrderManager'
 import Toast from './components/Toast'
+import AuthPage from './components/AuthPage'
 
 export default function App() {
+  const [token, setToken] = useState(localStorage.getItem('token') || null)
   const [activeSection, setActiveSection] = useState('dashboard')
   const [theme, setTheme] = useState(localStorage.getItem('theme') || 'dark')
   
@@ -25,10 +27,7 @@ export default function App() {
   const [toasts, setToasts] = useState([])
   const [loading, setLoading] = useState(true)
 
-  // Configure API Base Endpoint
-  // Vite proxy handles '/api' local redirection. In production, we read VITE_API_URL or use relative paths.
-  const API_BASE =
-  import.meta.env.VITE_API_URL || 'http://localhost:8000'
+  const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
   // Toast Helper
   const addToast = (message, type = 'success') => {
@@ -43,7 +42,25 @@ export default function App() {
     setToasts((prev) => prev.filter((t) => t.id !== id))
   }
 
-  // Handle Theme Switching
+  const handleLogout = () => {
+    setToken(null)
+    localStorage.removeItem('token')
+    addToast('Logged out successfully.', 'success')
+  }
+
+  const handleLoginSuccess = (newToken) => {
+    setToken(newToken)
+    localStorage.setItem('token', newToken)
+    addToast('Authenticated successfully.', 'success')
+  }
+
+  const getAuthHeaders = () => {
+    return {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    }
+  }
+
   useEffect(() => {
     const root = document.documentElement
     if (theme === 'light') {
@@ -58,15 +75,22 @@ export default function App() {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))
   }
 
-  // Centralized Data Fetcher
   const fetchAllData = async () => {
+    if (!token) return;
+    setLoading(true)
     try {
       const [prodRes, custRes, orderRes, statsRes] = await Promise.all([
-        fetch(`${API_BASE}/products`),
-        fetch(`${API_BASE}/customers`),
-        fetch(`${API_BASE}/orders`),
-        fetch(`${API_BASE}/dashboard/stats`)
+        fetch(`${API_BASE}/products`, { headers: getAuthHeaders() }),
+        fetch(`${API_BASE}/customers`, { headers: getAuthHeaders() }),
+        fetch(`${API_BASE}/orders`, { headers: getAuthHeaders() }),
+        fetch(`${API_BASE}/dashboard/stats`, { headers: getAuthHeaders() })
       ])
+
+      // If token is invalid/expired
+      if (prodRes.status === 401) {
+          handleLogout();
+          throw new Error('Session expired. Please log in again.');
+      }
 
       if (!prodRes.ok || !custRes.ok || !orderRes.ok || !statsRes.ok) {
         throw new Error('One or more network requests failed to load.')
@@ -80,7 +104,6 @@ export default function App() {
       setProducts(prods)
       setCustomers(custs)
       
-      // Inject resolved customer references into orders for clean display
       const mappedOrders = ords.map((ord) => ({
         ...ord,
         customer: custs.find((c) => c.id === ord.customer_id)
@@ -88,7 +111,7 @@ export default function App() {
       setOrders(mappedOrders)
       setDashboardStats(stats)
     } catch (err) {
-      addToast('Failed to synchronize database state with API.', 'error')
+      addToast(err.message, 'error')
       console.error(err)
     } finally {
       setLoading(false)
@@ -96,22 +119,20 @@ export default function App() {
   }
 
   useEffect(() => {
-    fetchAllData()
-  }, [])
+    if (token) {
+      fetchAllData()
+    }
+  }, [token])
 
-  // ==========================================
   // PRODUCT OPERATIONS
-  // ==========================================
   const handleAddProduct = async (payload) => {
     const res = await fetch(`${API_BASE}/products`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify(payload)
     })
     const data = await res.json()
-    if (!res.ok) {
-      throw new Error(data.detail || 'Failed to create product.')
-    }
+    if (!res.ok) throw new Error(data.detail || 'Failed to create product.')
     addToast(`Product '${payload.name}' added successfully!`, 'success')
     fetchAllData()
   }
@@ -119,24 +140,20 @@ export default function App() {
   const handleUpdateProduct = async (id, payload) => {
     const res = await fetch(`${API_BASE}/products/${id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify(payload)
     })
     const data = await res.json()
-    if (!res.ok) {
-      throw new Error(data.detail || 'Failed to update product details.')
-    }
+    if (!res.ok) throw new Error(data.detail || 'Failed to update product details.')
     addToast('Product details updated successfully.', 'success')
     fetchAllData()
   }
 
   const handleDeleteProduct = async (id) => {
     try {
-      const res = await fetch(`${API_BASE}/products/${id}`, { method: 'DELETE' })
+      const res = await fetch(`${API_BASE}/products/${id}`, { method: 'DELETE', headers: getAuthHeaders() })
       const data = await res.json()
-      if (!res.ok) {
-        throw new Error(data.detail || 'Failed to delete product.')
-      }
+      if (!res.ok) throw new Error(data.detail || 'Failed to delete product.')
       addToast('Product successfully removed from catalogue.', 'success')
       fetchAllData()
     } catch (err) {
@@ -144,30 +161,24 @@ export default function App() {
     }
   }
 
-  // ==========================================
   // CUSTOMER OPERATIONS
-  // ==========================================
   const handleAddCustomer = async (payload) => {
     const res = await fetch(`${API_BASE}/customers`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify(payload)
     })
     const data = await res.json()
-    if (!res.ok) {
-      throw new Error(data.detail || 'Failed to register customer.')
-    }
+    if (!res.ok) throw new Error(data.detail || 'Failed to register customer.')
     addToast(`Customer '${payload.name}' registered successfully!`, 'success')
     fetchAllData()
   }
 
   const handleDeleteCustomer = async (id) => {
     try {
-      const res = await fetch(`${API_BASE}/customers/${id}`, { method: 'DELETE' })
+      const res = await fetch(`${API_BASE}/customers/${id}`, { method: 'DELETE', headers: getAuthHeaders() })
       const data = await res.json()
-      if (!res.ok) {
-        throw new Error(data.detail || 'Failed to delete customer.')
-      }
+      if (!res.ok) throw new Error(data.detail || 'Failed to delete customer.')
       addToast('Customer record and associated orders removed.', 'success')
       fetchAllData()
     } catch (err) {
@@ -175,35 +186,39 @@ export default function App() {
     }
   }
 
-  // ==========================================
   // ORDER OPERATIONS
-  // ==========================================
   const handleCreateOrder = async (payload) => {
     const res = await fetch(`${API_BASE}/orders`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify(payload)
     })
     const data = await res.json()
-    if (!res.ok) {
-      throw new Error(data.detail || 'Failed to place order.')
-    }
+    if (!res.ok) throw new Error(data.detail || 'Failed to place order.')
     addToast(`Order placed successfully! Total bill: $${data.total_amount.toFixed(2)}`, 'success')
     fetchAllData()
   }
 
   const handleDeleteOrder = async (id) => {
     try {
-      const res = await fetch(`${API_BASE}/orders/${id}`, { method: 'DELETE' })
+      const res = await fetch(`${API_BASE}/orders/${id}`, { method: 'DELETE', headers: getAuthHeaders() })
       const data = await res.json()
-      if (!res.ok) {
-        throw new Error(data.detail || 'Failed to delete order.')
-      }
+      if (!res.ok) throw new Error(data.detail || 'Failed to delete order.')
       addToast(`Order cancelled. Inventory levels successfully restored!`, 'success')
       fetchAllData()
     } catch (err) {
       addToast(err.message, 'error')
     }
+  }
+
+  // If not logged in, render only the Auth page
+  if (!token) {
+    return (
+      <div className="app-container">
+        <AuthPage onLoginSuccess={handleLoginSuccess} />
+        <Toast toasts={toasts} removeToast={removeToast} />
+      </div>
+    )
   }
 
   // Render Component mapping
@@ -278,11 +293,16 @@ export default function App() {
             <h1>{headerMeta.title}</h1>
             <p>{headerMeta.sub}</p>
           </div>
-          {loading && (
-            <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600 }}>
-              Synchronizing with server...
-            </span>
-          )}
+          <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+            {loading && (
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                Synchronizing with server...
+              </span>
+            )}
+            <button onClick={handleLogout} className="btn btn-secondary" style={{ padding: '0.5rem 1rem' }}>
+              Logout
+            </button>
+          </div>
         </header>
 
         {/* Dynamic section viewport */}

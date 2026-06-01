@@ -27,7 +27,8 @@ export default function App() {
 
   // Configure API Base Endpoint
   // Vite proxy handles '/api' local redirection. In production, we read VITE_API_URL or use relative paths.
-  const API_BASE = '/api'
+  const API_BASE =
+  import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
   // Toast Helper
   const addToast = (message, type = 'success') => {

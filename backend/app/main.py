@@ -31,12 +31,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from fastapi.responses import JSONResponse
+
 # Exception Handler to map business rule failures (ValueError) to HTTP Bad Request
 @app.exception_handler(ValueError)
 async def value_error_handler(request, exc: ValueError):
-    return HTTPException(
+    return JSONResponse(
         status_code=status.HTTP_400_BAD_REQUEST,
-        detail=str(exc)
+        content={"detail": str(exc)}
     )
 
 # ==========================================

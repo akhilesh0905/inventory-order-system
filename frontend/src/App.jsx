@@ -31,7 +31,7 @@ export default function App() {
   const [loading, setLoading] = useState(true)
 
   // Configure API Base Endpoint
-  const API_BASE = '/api'
+  const API_BASE = 'https://inventory-backend-d5le.onrender.com'
 
   // Toast Helper
   const addToast = (message, type = 'success') => {
